@@ -1,0 +1,188 @@
+using ReactNPC.AI;
+using ReactNPC.Data;
+using ReactNPC.Dialogue;
+using ReactNPC.Input;
+using ReactNPC.Prediction;
+using ReactNPC.UI;
+using TMPro;
+using UnityEngine;
+
+namespace ReactNPC.Core
+{
+    public class AINpcAgent : MonoBehaviour
+    {
+        [Header("Modules")]
+        [SerializeField] private StreamingInputManager inputManager;
+        [SerializeField] private IntentPredictor intentPredictor;
+        [SerializeField] private NpcReactionController reactionController;
+
+        [Header("Dialogue")]
+        [SerializeField] private NpcDialogueView dialogueView;
+        [SerializeField] private ConversationMemory conversationMemory;
+
+        [Header("Gemini")]
+        [SerializeField] private GeminiDialogueService geminiService;
+        [SerializeField] private NpcProfile npcProfile;
+
+        [Header("Debug")]
+        [SerializeField] private TMP_Text debugText;
+
+        private bool isWaitingForAi;
+        private string pendingPlayerText;
+
+        private void Start()
+        {
+            if (!ValidateReferences())
+            {
+                enabled = false;
+                return;
+            }
+
+            inputManager.OnPartialTextChanged += HandlePartialTextChanged;
+            inputManager.OnFinalTextSubmitted += HandleFinalTextSubmitted;
+        }
+
+        private void OnDestroy()
+        {
+            if (inputManager == null)
+            {
+                return;
+            }
+
+            inputManager.OnPartialTextChanged -= HandlePartialTextChanged;
+            inputManager.OnFinalTextSubmitted -= HandleFinalTextSubmitted;
+        }
+
+        private bool ValidateReferences()
+        {
+            bool valid = true;
+
+            if (inputManager == null)
+            {
+                Debug.LogError("[AINpcAgent] InputManager가 없습니다.");
+                valid = false;
+            }
+
+            if (intentPredictor == null)
+            {
+                Debug.LogError("[AINpcAgent] IntentPredictor가 없습니다.");
+                valid = false;
+            }
+
+            if (reactionController == null)
+            {
+                Debug.LogError("[AINpcAgent] ReactionController가 없습니다.");
+                valid = false;
+            }
+
+            if (dialogueView == null)
+            {
+                Debug.LogError("[AINpcAgent] DialogueView가 없습니다.");
+                valid = false;
+            }
+
+            if (conversationMemory == null)
+            {
+                Debug.LogError("[AINpcAgent] ConversationMemory가 없습니다.");
+                valid = false;
+            }
+
+            if (geminiService == null)
+            {
+                Debug.LogError("[AINpcAgent] GeminiService가 없습니다.");
+                valid = false;
+            }
+
+            if (npcProfile == null)
+            {
+                Debug.LogError("[AINpcAgent] NpcProfile이 없습니다.");
+                valid = false;
+            }
+
+            return valid;
+        }
+
+        private void HandlePartialTextChanged(string text)
+        {
+            PredictionResult prediction =
+                intentPredictor.Predict(text);
+
+            reactionController.React(prediction);
+
+            if (debugText != null)
+            {
+                debugText.text =
+                    $"Partial: {text}\n" +
+                    $"Intent: {prediction.intent}\n" +
+                    $"Emotion: {prediction.emotion}\n" +
+                    $"Confidence: {prediction.confidence:0.00}";
+            }
+        }
+
+        private void HandleFinalTextSubmitted(string text)
+        {
+            if (isWaitingForAi)
+            {
+                Debug.LogWarning(
+                    "[AINpcAgent] AI 응답을 기다리는 중입니다."
+                );
+
+                return;
+            }
+
+            PredictionResult prediction =
+                intentPredictor.Predict(text);
+
+            pendingPlayerText = text;
+            isWaitingForAi = true;
+
+            dialogueView.ShowPlayerMessage(text);
+            reactionController.SetThinking();
+
+            string history =
+                conversationMemory.BuildHistoryText();
+
+            StartCoroutine(
+                geminiService.GenerateReply(
+                    text,
+                    prediction,
+                    npcProfile,
+                    history,
+                    HandleAiSuccess,
+                    HandleAiError
+                )
+            );
+        }
+
+        private void HandleAiSuccess(string reply)
+        {
+            conversationMemory.AddPlayerMessage(
+                pendingPlayerText
+            );
+
+            conversationMemory.AddNpcMessage(reply);
+
+            dialogueView.ShowNpcReply(reply);
+            reactionController.SetSpeaking();
+
+            isWaitingForAi = false;
+            pendingPlayerText = string.Empty;
+        }
+
+        private void HandleAiError(string error)
+        {
+            Debug.LogError(
+                $"[AINpcAgent] Gemini 오류:\n{error}"
+            );
+
+            dialogueView.ShowError(
+                "NPC가 응답하지 못했습니다."
+            );
+
+            reactionController.SetIdle();
+
+            isWaitingForAi = false;
+            pendingPlayerText = string.Empty;
+        }
+    }
+}

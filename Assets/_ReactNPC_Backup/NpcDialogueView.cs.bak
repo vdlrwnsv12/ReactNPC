@@ -1,0 +1,51 @@
+using TMPro;
+using UnityEngine;
+
+namespace ReactNPC.UI
+{
+    public class NpcDialogueView : MonoBehaviour
+    {
+        [SerializeField] private TMP_Text dialogueText;
+
+        public void ShowPlayerMessage(string message)
+        {
+            if (dialogueText == null)
+            {
+                Debug.LogError("[NpcDialogueView] Dialogue Text가 연결되지 않았습니다.");
+                return;
+            }
+
+            dialogueText.text = $"Player: {message}";
+        }
+
+        public void ShowNpcReply(string reply)
+        {
+            if (dialogueText == null)
+            {
+                return;
+            }
+
+            dialogueText.text += $"\n\nNPC: {reply}";
+        }
+
+        public void ShowError(string message)
+        {
+            if (dialogueText == null)
+            {
+                return;
+            }
+
+            dialogueText.text += $"\n\nError: {message}";
+        }
+
+        public void Clear()
+        {
+            if (dialogueText == null)
+            {
+                return;
+            }
+
+            dialogueText.text = string.Empty;
+        }
+    }
+}
